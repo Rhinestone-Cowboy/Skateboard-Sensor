@@ -36,6 +36,10 @@ bool send_message = true;
 Menu menu = pre_record;
 int num_records = 0;
 
+double hz_to_ms(int hz){
+  return 1.0 / hz * 1000.0;
+}
+
 void record(String metadata) {
 
   for(int index = 0; index < batch_size; index++){
@@ -81,7 +85,7 @@ void record(String metadata) {
 
     sensor_readings[index] = csv;
 
-    delay(sample_rate);
+    delay(hz_to_ms(sample_rate));
   }
 }
 
@@ -115,9 +119,11 @@ void rx_callback(uint16_t conn_handle) {
     if (packet == "1"){//recording as an ollie
       print_data(true);
       menu = pre_record;
+      num_records++;
     } else if (packet == "2"){
       print_data(false);
       menu = pre_record;
+      num_records++;
     } else if (packet == "3"){
       menu = pre_record;
     }
@@ -203,7 +209,7 @@ int prevTime = millis();
 void loop(void) {
   if (menu == pre_record) {
     if(send_message == true){
-      bleuart.println("____SKATEBOARD TRICK RECORDER 3000____");
+      bleuart.println("SKATEBOARD TRICK RECORDER 3000");
       bleuart.print("Number of Recorded Data Points: ");
       bleuart.println(num_records);
       bleuart.println("Enter:(1)Record | (2)Exit");
@@ -225,11 +231,11 @@ void loop(void) {
 
 
 //repeat messages if no response in a while
-  int currentTime = millis();
-  if(currentTime - prevTime > 10000){
-    prevTime = currentTime;
-    send_message = true;
-  }
+  // int currentTime = millis();
+  // if(currentTime - prevTime > 10000){
+  //   prevTime = currentTime;
+  //   send_message = true;
+  // }
 
 
    
