@@ -32,11 +32,11 @@ bool new_rev = true;
 String sensor_readings[batch_size];
 
 enum Menu {pre_record, recording, post_record, end};
-bool sendMessage = true; 
-
+bool send_message = true; 
 Menu menu = pre_record;
+int num_records = 0;
 
-void record(String date) {
+void record(String metadata) {
 
   for(int index = 0; index < batch_size; index++){
     sensors_event_t accel;
@@ -56,7 +56,7 @@ void record(String date) {
     unsigned long t = micros();
 
     String csv = "";
-    csv += date;
+    csv += metadata;
     csv += ",";
     csv += t;
     csv +=",";
@@ -89,42 +89,39 @@ void print_data(bool isOllie){
   bleuart.println("___RECORD START____");
   for(int i = 0; i < batch_size; i++){
     String csv = isOllie + "," + sensor_readings[i]; 
-    bleuart.print(sensor_readings[i]);
+    bleuart.print(csv);
   }
   bleuart.println("____RECORD END_____");
 }
 
-void navigator(){
-  
-}
-
 void rx_callback(uint16_t conn_handle) {
-  String packet = bleuart.readStringUntill('\n');
+  String packet = bleuart.readStringUntil('\n');
   packet.trim();
-  packet = std:tolower(packet);
+  packet.toLowerCase();
 
   if (packet == "r"){
-    sendMessage = true;
+    send_message = true;
   }
 
   if (menu == pre_record) {
     if (packet == "1"){
-      menu = recording; 
+      menu = recording;
+      send_message = true; 
 
     } else if (packet == "2"){
       menu = end;
     }
-
-
-  } else if (menu == Menu.post_record) {
-    if (packet == "1"){
-      print_data(isOllie=true);
+  }else if (menu == post_record) {
+    if (packet == "1"){//recording as an ollie
+      print_data(true);
+      menu = pre_record;
     } else if (packet == "2"){
-      print_data(isOllie=false);
+      print_data(false);
+      menu = pre_record;
     } else if (packet == "3"){
       menu = pre_record;
-      send_message = true;
     }
+    send_message = true;
   }
 
 
@@ -201,21 +198,38 @@ void setup(void) {
 
 }
 
+
+int prevTime = millis();
 void loop(void) {
-  if (menu = pre_record) {
-    if(sendMessage == true){
+  if (menu == pre_record) {
+    if(send_message == true){
       bleuart.println("____SKATEBOARD TRICK RECORDER 3000____");
+      bleuart.print("Number of Recorded Data Points: ");
+      bleuart.println(num_records);
       bleuart.println("Enter:(1)Record | (2)Exit");
+      send_message = false;
     }
-  }else if (menu = post_record) {
-    if(sendMessage == true){
-      bleuart.println("Recording complete!")
-      bleuart.println("Enter:(1)Save as Ollie | (2)Save as 'not ollie' | (3)Delete")
+  }else if (menu == recording) {
+    record(String(num_records));
+    menu = post_record;
+    send_message = true;
+
+
+  }else if (menu == post_record) {
+    if(send_message == true){
+      bleuart.println("Recording complete!");
+      bleuart.println("Enter:(1)Save as Ollie | (2)Save as 'not ollie' | (3)Delete");
+      send_message = false;
     }
   }
 
 
-
+//repeat messages if no response in a while
+  int currentTime = millis();
+  if(currentTime - prevTime > 10000){
+    prevTime = currentTime;
+    send_message = true;
+  }
 
 
    
