@@ -31,72 +31,19 @@ bool new_rev = true;
 #define batch_size record_time*sample_rate
 String sensor_readings[batch_size];
 
-enum Menu {pre_record, recording, post_record, end};
+enum Menu {pre_record, recording, post_record, printing, end};
 bool send_message = true; 
 Menu menu = pre_record;
 int num_records = 0;
+int index_count = 0;
+int ref_time = 0;
+enum Trick {none, ollie};
+Trick trick = none;
 
 double hz_to_ms(int hz){
   return 1.0 / hz * 1000.0;
 }
 
-void record(String metadata) {
-
-  for(int index = 0; index < batch_size; index++){
-    sensors_event_t accel;
-    sensors_event_t gyro;
-    sensors_event_t temp;
-    lsm6ds3trc.getEvent(&accel, &gyro, &temp);
-    lis3mdl.read();
-    float mag_x = lis3mdl.x;
-    float mag_y = lis3mdl.y;
-    float mag_z = lis3mdl.z;
-    float acc_x = accel.acceleration.x;
-    float acc_y = accel.acceleration.y;
-    float acc_z = accel.acceleration.z;
-    float gyro_x = gyro.gyro.x;
-    float gyro_y = gyro.gyro.y;
-    float gyro_z = gyro.gyro.z;
-    unsigned long t = micros();
-
-    String csv = "";
-    csv += metadata;
-    csv += ",";
-    csv += t;
-    csv +=",";
-    csv +=mag_x;
-    csv +=",";
-    csv +=mag_y;
-    csv +=",";
-    csv +=mag_z;
-    csv +=",";
-    csv +=acc_x;
-    csv +=",";
-    csv +=acc_y;
-    csv +=",";
-    csv +=acc_z;
-    csv +=",";
-    csv +=gyro_x;
-    csv +=",";
-    csv +=gyro_y; 
-    csv +=",";
-    csv +=gyro_z;
-    csv +="\n";
-
-    sensor_readings[index] = csv;
-
-    delay(hz_to_ms(sample_rate));
-  }
-}
-
-void print_data(bool isOllie){
-  bleuart.println("___RECORD START____");
-  for(int i = 0; i < batch_size; i++){
-    String csv = isOllie + "," + sensor_readings[i]; 
-    bleuart.print(csv);
-  }
-  bleuart.println("____RECORD END_____");
-}
 
 void rx_callback(uint16_t conn_handle) {
   String packet = bleuart.readStringUntil('\n');
@@ -111,18 +58,19 @@ void rx_callback(uint16_t conn_handle) {
     if (packet == "1"){
       menu = recording;
       send_message = true; 
+      ref_time = micros();
 
     } else if (packet == "2"){
       menu = end;
     }
   }else if (menu == post_record) {
     if (packet == "1"){//recording as an ollie
-      print_data(true);
-      menu = pre_record;
+      trick = ollie;
+      menu = printing;
       num_records++;
     } else if (packet == "2"){
-      print_data(false);
-      menu = pre_record;
+      trick = none;
+      menu = printing;
       num_records++;
     } else if (packet == "3"){
       menu = pre_record;
@@ -201,44 +149,112 @@ void setup(void) {
   // Set up and start advertising
   startAdv();
 
-
+  Wire.setClock(100000); // Drop to 100kHz for stability
 }
 
 
-int prevTime = millis();
-void loop(void) {
+void loop(void) { 
   if (menu == pre_record) {
-    if(send_message == true){
-      bleuart.println("SKATEBOARD TRICK RECORDER 3000");
-      bleuart.print("Number of Recorded Data Points: ");
-      bleuart.println(num_records);
-      bleuart.println("Enter:(1)Record | (2)Exit");
-      send_message = false;
-    }
+    printIntroMenu();
   }else if (menu == recording) {
-    record(String(num_records));
-    menu = post_record;
-    send_message = true;
-
-
+    record();
   }else if (menu == post_record) {
-    if(send_message == true){
-      bleuart.println("Recording complete!");
-      bleuart.println("Enter:(1)Save as Ollie | (2)Save as 'not ollie' | (3)Delete");
-      send_message = false;
-    }
+    printSaveMenu();
+  }else if (menu == printing) {
+    String str = String(num_records) + "," + String((int)trick) + "," ;
+    print_data(str);
   }
 
+  delay(hz_to_ms(sample_rate));
+}
 
-//repeat messages if no response in a while
-  // int currentTime = millis();
-  // if(currentTime - prevTime > 10000){
-  //   prevTime = currentTime;
-  //   send_message = true;
-  // }
+void record(void) {
 
+  if (index_count >= batch_size) {
+    index_count = 0;
+    menu = post_record;
+    send_message = true;
+    return;
+  }
 
-   
+  sensors_event_t accel;
+  sensors_event_t gyro;
+  sensors_event_t temp;
+  delay(1);
+  lsm6ds3trc.getEvent(&accel, &gyro, &temp);//problem line
+  lis3mdl.read();
+  float mag_x = lis3mdl.x;
+  float mag_y = lis3mdl.y;
+  float mag_z = lis3mdl.z;
+  float acc_x = accel.acceleration.x;
+  float acc_y = accel.acceleration.y;
+  float acc_z = accel.acceleration.z;
+  float gyro_x = gyro.gyro.x;
+  float gyro_y = gyro.gyro.y;
+  float gyro_z = gyro.gyro.z;
+
+  String csv = "";
+  csv += micros() - ref_time;
+  csv +=",";
+  csv +=mag_x;
+  csv +=",";
+  csv +=mag_y;
+  csv +=",";
+  csv +=mag_z;
+  csv +=",";
+  csv +=acc_x;
+  csv +=",";
+  csv +=acc_y;
+  csv +=",";
+  csv +=acc_z;
+  csv +=",";
+  csv +=gyro_x;
+  csv +=",";
+  csv +=gyro_y; 
+  csv +=",";
+  csv +=gyro_z;
+  csv +="\n";
+
+  sensor_readings[index_count] = csv;
+  index_count = index_count + 1;
+
+}
+
+void print_data(String metadata){
+  if (index_count == 0){
+    bleuart.println("___RECORD START____");
+  }
+
+  if (index_count >= batch_size) {
+    bleuart.println("____RECORD END_____");
+    index_count = 0;
+    menu = pre_record;
+    send_message = true;
+    return;
+  }
+
+  String csv = metadata + sensor_readings[index_count]; 
+  bleuart.print(csv);
+  index_count++;
+
+}
+
+void printIntroMenu(void) {
+  if(send_message == true){
+    bleuart.println("SKATEBOARD TRICK RECORDER 3000");
+    bleuart.print("Number of Recorded Data Points: ");
+    bleuart.println(num_records);
+    bleuart.println("Enter:(1)Record | (2)Exit");
+    send_message = false;
+  }
+}
+
+void printSaveMenu(void) {
+  if(send_message == true){
+    bleuart.println("Recording complete!");
+    bleuart.println("Enter:(1)Save as Ollie | (2)Save as 'not ollie' | (3)Delete");
+    send_message = false;
+  }
 }
 
 
