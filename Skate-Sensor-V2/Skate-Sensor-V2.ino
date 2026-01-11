@@ -26,7 +26,7 @@ long int check_array[6]={0.00, 0.00, 0.00, 0.00, 0.00, 0.00};
 
 bool new_rev = true;
 
-#define record_time 2 //in seconds
+#define record_time 3 //in seconds
 #define sample_rate 100 //x times a second(Hz)
 #define batch_size record_time*sample_rate
 String sensor_readings[batch_size];
@@ -35,7 +35,8 @@ enum Menu {pre_record, recording, post_record, printing, end};
 bool send_message = true; 
 Menu menu = pre_record;
 int num_records = 0;
-int index_count = 0;
+int index_count = -1;
+int ref_index_count = 0;
 int ref_time = 0;
 enum Trick {none, ollie};
 Trick trick = none;
@@ -51,14 +52,16 @@ void rx_callback(uint16_t conn_handle) {
   packet.toLowerCase();
 
   if (packet == "r"){
+    menu = pre_record;
     send_message = true;
   }
 
-  if (menu == pre_record) {
-    if (packet == "1"){
-      menu = recording;
+  if (menu == pre_record || menu == recording) {
+    if (packet == "1" || packet == ""){
+      menu = post_record;
       send_message = true; 
       ref_time = micros();
+      ref_index_count = index_count;
 
     } else if (packet == "2"){
       menu = end;
@@ -77,8 +80,6 @@ void rx_callback(uint16_t conn_handle) {
     }
     send_message = true;
   }
-
-
 }
 
 void setup(void) {
@@ -160,8 +161,9 @@ void loop(void) {
     record();
   }else if (menu == post_record) {
     printSaveMenu();
+    ref_time = micros();
   }else if (menu == printing) {
-    String str = String(num_records) + "," + String((int)trick) + "," ;
+    String str = String(num_records) + "," + String((int)trick) + "," + String( abs(index_count - ref_index_count) * hz_to_ms(sample_rate) ) + ",";
     print_data(str);
   }
 
@@ -172,12 +174,11 @@ void loop(void) {
 
 
 void record(void) {
-
+  //increment at the beginning so that index_count is the last updated value
+  index_count = index_count + 1;
   if (index_count >= batch_size) {
     index_count = 0;
-    menu = post_record;
-    send_message = true;
-    return;
+    // menu = post_record;
   }
 
   lis3mdl.read();
@@ -203,8 +204,6 @@ void record(void) {
   float gyro_z = gyro.gyro.z;
 
   String csv = "";
-  csv += micros() - ref_time;
-  csv +=",";
   csv +=mag_x;
   csv +=",";
   csv +=mag_y;
@@ -225,26 +224,24 @@ void record(void) {
   csv +="\n";
 
   sensor_readings[index_count] = csv;
-  index_count = index_count + 1;
-
 }
 
 void print_data(String metadata){
-  if (index_count == 0){
-    bleuart.println("___RECORD START____");
+  if (index_count - ref_index_count == 0){
+    bleuart.println("___PRINT START____");
   }
 
-  if (index_count >= batch_size) {
-    bleuart.println("____RECORD END_____");
-    index_count = 0;
+  if (abs(index_count - ref_index_count) >= batch_size) {
+    bleuart.println("____PRINT END_____");
     menu = pre_record;
+    index_count = ref_index_count;
     send_message = true;
     return;
   }
 
-  String csv = metadata + sensor_readings[index_count]; 
+  String csv = metadata + sensor_readings[algebraic_mod(index_count, batch_size)]; 
   bleuart.print(csv);
-  index_count++;
+  index_count--;
 }
 
 
@@ -255,19 +252,31 @@ void printIntroMenu(void) {
     bleuart.println("SKATEBOARD TRICK RECORDER 3000");
     bleuart.print("Number of Recorded Data Points: ");
     bleuart.println(num_records);
-    bleuart.println("Enter:(1)Record | (2)Exit");
+    bleuart.println("Enter:(1 or '')Save last "+ String(record_time) + " seconds of data | (2)Exit");
     send_message = false;
   }
+  menu = recording;
+
 }
 
 void printSaveMenu(void) {
   if(send_message == true){
-    bleuart.println("Recording complete!");
     bleuart.println("Enter:(1)Save as Ollie | (2)Save as 'not ollie' | (3)Delete");
     send_message = false;
   }
 }
 
+int algebraic_mod(int a, int b) {
+    if (b < 0) {
+        // Handle negative modulus if necessary, e.g., by making it positive
+        return algebraic_mod(-a, -b);
+    }
+    int result = a % b;
+    if (result < 0) {
+        result += b;
+    }
+    return result;
+}
 
 
 
